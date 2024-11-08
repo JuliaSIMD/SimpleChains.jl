@@ -1,7 +1,7 @@
 using Test
 ENV["DATADEPS_ALWAYS_ACCEPT"] = "true"
 @testset "LeNet" begin
-  using SimpleChains, MLDatasets
+  using SimpleChains, MLDatasets, JET
 
   lenet = SimpleChain(
     (static(28), static(28), static(1)),
@@ -128,4 +128,32 @@ ENV["DATADEPS_ALWAYS_ACCEPT"] = "true"
     @test a1 > 0.93
     @test a3 > 0.95
   end
+
+  @time SimpleChains.init_params!(p, lenet; rng = SimpleChains.local_rng())
+  @time SimpleChains.train_unbatched!(
+    p,
+    lenetloss,
+    xtrain4,
+    SimpleChains.ADAM(3e-4),
+    10
+  )
+  if VERSION >= v"1.10"
+    @test_opt SimpleChains.train_unbatched!(
+      p,
+      lenetloss,
+      xtrain4,
+      SimpleChains.ADAM(3e-4),
+      10
+    )
+  end
+  a4, l4 = SimpleChains.accuracy_and_loss(lenetloss, xtrain4, p)
+  @test l4 ≈ lenetloss(xtrain4, p)
+  a5, l5 = SimpleChains.accuracy_and_loss(lenetloss, xtest4, ytest1, p)
+  @test l5 ≈ SimpleChains.add_loss(lenetloss, LogitCrossEntropyLoss(ytest1))(
+    xtest4,
+    p
+  )
+  # TODO: unbatched training is currently much less effective...
+  @test a4 > 0.3
+  @test a5 > 0.3
 end

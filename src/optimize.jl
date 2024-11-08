@@ -379,17 +379,21 @@ function train_unbatched_core!(
   c::Chain,
   pu::Ptr{UInt8},
   pX,
-  it,
   p::AbstractVector{T},
   opt,
+  it,
   mpt
 ) where {T}
   numthreads = _numthreads()
-  glen = _try_static(numparam(getchain(c)), static_length(params))
+  glen = _try_static(numparam(getchain(c)), static_length(p))
   aligned_glen = align(glen)
   g = _alloc_grad(Ptr{T}(pu), glen, numthreads, aligned_glen)
   offset = static_sizeof(T) * aligned_glen * numthreads
-  train_unbatched_core!(c, pu + offset, g, pX, it, p, opt, mpt)
+  if numthreads == 1
+    train_unbatched_core!(c, pu + offset, g[:, begin], pX, p, opt, it, mpt)
+  else
+    train_unbatched_core!(c, pu + offset, g, pX, p, opt, it, mpt)
+  end
 end
 
 """
@@ -461,7 +465,7 @@ function train_unbatched!(
   pX = maybe_static_size_arg(chn.inputdim, X)
   optoff = optmemsize(opt, p)
   @unpack layers = chn
-  glen = _try_static(numparam(chn), static_length(params))
+  glen = _try_static(numparam(chn), static_length(p))
   numthreads = _numthreads()
 
   T = Base.promote_eltype(p, X)
@@ -469,7 +473,7 @@ function train_unbatched!(
     Val{T}(),
     layers,
     static_size(pX),
-    optoff + align(glen) * numthreads,
+    optoff + align(glen) * numthreads * static_sizeof(T),
     static(0),
     numthreads
   )
@@ -634,18 +638,33 @@ function train_batched_core!(
   T = Base.promote_eltype(p, pX)
   g = _alloc_grad(Ptr{T}(pu), glen, numthreads, aligned_glen)
   offset = static_sizeof(T) * aligned_glen * numthreads
-  train_batched_core!(
-    c,
-    pu + offset,
-    g,
-    p,
-    pX,
-    opt,
-    iters,
-    leaveofflast,
-    mpt,
-    N_bs
-  )
+  if numthreads == 1
+    train_batched_core!(
+      c,
+      pu + offset,
+      g[:, begin],
+      p,
+      pX,
+      opt,
+      iters,
+      leaveofflast,
+      mpt,
+      N_bs
+    )
+  else
+    train_batched_core!(
+      c,
+      pu + offset,
+      g,
+      p,
+      pX,
+      opt,
+      iters,
+      leaveofflast,
+      mpt,
+      N_bs
+    )
+  end
 end
 """
     train_batched!(g::AbstractVecOrMat, p, chn, X, opt, iters; batchsize = nothing)
@@ -705,15 +724,14 @@ function train_batched!(
     align(sizeof(eltype(tgt)) * tgt_batch_len) +
     align(sizeof(eltype(X)) * X_batch_len)
   perm_mem = align(sizeof(Int) * N)
-  if g === nothing
-    base_mem =
-      optoff +
-      perm_mem +
-      align(_try_static(numparam(chn), static_length(p))) * nthread
-  else
-    base_mem = optoff + perm_mem
-  end
+  base_mem = optoff + perm_mem
   T = Base.promote_eltype(p, X)
+  if g === nothing
+    base_mem +=
+      align(_try_static(numparam(chn), static_length(p))) *
+      nthread *
+      static_sizeof(T)
+  end
   mpt, total_bytes =
     required_bytes(Val{T}(), layers, sxb, base_mem, shuffle_per_thread, nthread)
   GC.@preserve X begin

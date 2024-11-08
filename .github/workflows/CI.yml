@@ -41,6 +41,7 @@ jobs:
         version:
           - '1'
         threads:
+          - '1'
           - '3'
           - '4'
     steps:
