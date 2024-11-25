@@ -51,9 +51,11 @@ ENV["DATADEPS_ALWAYS_ACCEPT"] = "true"
 
   # initialize a gradient buffer matrix; number of columns places an upper bound
   # on the number of threads used.
-  # G = similar(p, length(p), min(Threads.nthreads(), (Sys.CPU_THREADS ÷ ((Sys.ARCH === :x86_64) + 1))));
+  G = similar(p, length(p), min(Threads.nthreads(), (Sys.CPU_THREADS ÷ ((Sys.ARCH === :x86_64) + 1))));
+  
   # train
   @time SimpleChains.train_batched!(
+    G,
     p,
     lenetloss,
     xtrain4,
@@ -62,6 +64,7 @@ ENV["DATADEPS_ALWAYS_ACCEPT"] = "true"
   )
   if VERSION >= v"1.10"
     @test_opt SimpleChains.train_batched!(
+      G,
       p,
       lenetloss,
       xtrain4,
